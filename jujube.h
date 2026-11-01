@@ -164,7 +164,8 @@ public:
     void deallocate(T* p, size_t n){
         ::operator delete(p);
     }
-
+    template <typename U>
+    struct rebind{ typedef std::allocator<U> other; };
 private:
     bool m_already = false;
 };
@@ -5994,7 +5995,11 @@ private:
         }
 
         if(i != m_s.rend()){// means (i->wReserved1 == VTX_GROUND)
-            while(&*i < &m_s.back()) m_s.pop_back();
+            // 先算出要保留的元素个数（含 GROUND）：
+            // i 的 base 指向 GROUND 的下一个槽位，最后几次 pop_back() 会把它弹掉，
+            // MSVC 调试迭代器会因此把 i 标记为失效，弹栈过程中不能再拿 i 去比较。
+            const size_t keep = static_cast<size_t>(i.base() - m_s.begin());
+            while(m_s.size() > keep) m_s.pop_back();
         }
 
         return true;
@@ -7082,13 +7087,43 @@ public:
         auto i = m_exec.front().begin();
         while(i != m_exec.front().end()){
             if(SUCCEEDED((*i)->GetIDsOfNames(riid, rgszNames, cNames, lcid, rgDispId))){
+                // 转发给子处理器时要保存子处理器分配的 DISPID，
+                // 不能改写成父处理器自己的编号，否则 Invoke 会越界
+                DISPID childId = *rgDispId;
                 *rgDispId = m_disp.size() + DISPID_FORDYNAMICDISP;
-                m_disp.push_back( {nullptr, nullptr, nullptr, *i, *rgDispId} );
+                m_disp.push_back( {nullptr, nullptr, nullptr, *i, childId} );
                 m_disp_names[*rgszNames] = *rgDispId;
 
                 return S_OK;
             }
             ++i;
+        }
+
+        // 没有 Dim 的隐式变量不在 m_dim_names 里：
+        // 运行时 word_ 会按back→front 的顺序在 m_autodim 中查找/创建。
+        // 这里用同样的顺序把它们也暴露给 IDispatch，
+        // 否则宿主和后续 execute 段的 bind 都按名字找不到这类变量
+        // （每段脚本的隐式变量存在该段子处理器的 m_autodim 里）。
+        {
+            _variant_t* pvAutodim = nullptr;
+            if(!m_autodim.empty()){
+                auto foundB = m_autodim.back().find(*rgszNames);
+                if(foundB != m_autodim.back().end()){
+                    pvAutodim = &foundB->second;
+                }else if(m_autodim.size() > 1){
+                    auto foundF = m_autodim.front().find(*rgszNames);
+                    if(foundF != m_autodim.front().end())
+                        pvAutodim = &foundF->second;
+                }
+            }
+
+            if(pvAutodim){
+                *rgDispId = m_disp.size() + DISPID_FORDYNAMICDISP;
+                m_disp.push_back( {pvAutodim, nullptr, nullptr, nullptr, 0} );
+                m_disp_names[*rgszNames] = *rgDispId;
+
+                return S_OK;
+            }
         }
 
         return DISP_E_UNKNOWNNAME;
@@ -7249,15 +7284,27 @@ public:
                 }
             }else
             if(wFlags == DISPATCH_PROPERTYPUT){
-                if(SUCCEEDED( hr = (*this)(*disp.pp, pDispParams->rgvarg, pDispParams->cArgs) )){
-                    *pVarResult = m_s.back().Detach();
-                    m_s.pop_back();
+                // disp.pp 可能为空（名字解析到 Function/Sub 时 只有 pf），
+                // 直接解引用会崩溃；此时按“无此成员”处理
+                if(disp.pp){
+                    if(SUCCEEDED( hr = (*this)(*disp.pp, pDispParams->rgvarg, pDispParams->cArgs) )){
+                        *pVarResult = m_s.back().Detach();
+                        m_s.pop_back();
+                    }
+                }else{
+                    hr = DISP_E_MEMBERNOTFOUND;
                 }
             }else
             {
-                if(SUCCEEDED( hr = (*this)(*disp.pf, pDispParams->rgvarg, pDispParams->cArgs) )){
-                    *pVarResult = m_s.back().Detach();
-                    m_s.pop_back();
+                // disp.pf 可能为空（只有 Property Let 的名字），
+                // 直接解引用会崩溃；此时按“无此成员”处理
+                if(disp.pf){
+                    if(SUCCEEDED( hr = (*this)(*disp.pf, pDispParams->rgvarg, pDispParams->cArgs) )){
+                        *pVarResult = m_s.back().Detach();
+                        m_s.pop_back();
+                    }
+                }else{
+                    hr = DISP_E_MEMBERNOTFOUND;
                 }
             }
         }
