@@ -151,6 +151,13 @@ class OnceAllocator{
 public:
     typedef T value_type;
 
+    OnceAllocator() = default;
+
+    // allocator_traits 在 rebind 后需要用原分配器构造新分配器
+    template <typename U>
+    OnceAllocator(const OnceAllocator<U>& other)
+        : m_already(other.m_already){}
+
     T* allocate(size_t n){
         if(m_already){
             throw this;
@@ -164,11 +171,29 @@ public:
     void deallocate(T* p, size_t n){
         ::operator delete(p);
     }
+    // 必须映回自己：C++ 标准要求 rebind_alloc<value_type> 与自身相同，
+    // libstdc++ 13 起用 static_assert 强制检查
     template <typename U>
-    struct rebind{ typedef std::allocator<U> other; };
+    struct rebind{ typedef OnceAllocator<U> other; };
 private:
     bool m_already = false;
+    template <typename U> friend class OnceAllocator;
 };
+
+// 直接用嵌套大括号初始化 _variant_t 会被 GCC 判定为构造函数重载歧义，
+// 用显式的工厂函数代替
+inline _variant_t variant_of(VARTYPE vt){
+    _variant_t v;
+    v.vt = vt;
+    return v;
+}
+
+inline _variant_t variant_bool(bool b){
+    _variant_t v;
+    v.vt = VT_BOOL;
+    v.boolVal = b ? VARIANT_TRUE : VARIANT_FALSE;
+    return v;
+}
 
 typedef std::map<istring, _variant_t> CExtension;
 class CProgram;
@@ -418,7 +443,9 @@ public:
     HRESULT STDMETHODCALLTYPE Next(ULONG celt, VARIANT *rgVar, ULONG *pCeltFetched){
         ULONG i = 0;
         while(i < celt && m_i != m_r.end()){
-            VariantCopy(rgVar+i, &*m_i);
+            // MinGW 的 oleauto.h 把源参数声明成非 const（Windows SDK 是 const）；
+            // VariantCopy 只读取源，去掉 const 是安全的
+            VariantCopy(rgVar+i, const_cast<_variant_t*>(&*m_i));
             ++m_i;
             ++i;
         }
@@ -1499,7 +1526,7 @@ private:
             m_params.push_back(istring(c, len));
             auto n = m_dim_names.size();
             m_dim_names[m_params.back()] = { DSC_PUBLIC, n };
-            m_dim_defs.push_back( _variant_t{ {{{VT_ERROR,0,0,0,{0}}}} } );
+            m_dim_defs.push_back( variant_of(VT_ERROR) );
         }
 
         return c+len;
@@ -2096,11 +2123,11 @@ public:
         , m_option_explicit(parent ? parent->m_option_explicit : false)
         , m_option_json(parent ? parent->m_option_json : false)
         , m_consts{
-            {L"true"   , _variant_t{ {{{VT_BOOL,0,0,0,{VARIANT_TRUE}}}} } },
-            {L"false"  , _variant_t{ {{{VT_BOOL,0,0,0,{VARIANT_FALSE}}}} }},
-            {L"empty"  , _variant_t{ {{{VT_EMPTY,0,0,0,{0}}}} }           },
-            {L"null"   , _variant_t{ {{{VT_NULL,0,0,0,{0}}}} }            },
-            {L"nothing", _variant_t{ {{{VT_DISPATCH,0,0,0,{0}}}} }        },
+            {L"true"   , variant_bool(true)      },
+            {L"false"  , variant_bool(false)     },
+            {L"empty"  , variant_of(VT_EMPTY)    },
+            {L"null"   , variant_of(VT_NULL)     },
+            {L"nothing", variant_of(VT_DISPATCH) },
         }
         , m_parent(parent)
         , m_granpa(parent ? parent->m_granpa : this)
@@ -3418,7 +3445,7 @@ private:
         m_scope.push_back( prog->m_dim_defs );
         std::vector<_variant_t>& newscope = m_scope.back();
         m_autodim.push_back( {} );
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
         m_onerr.push_back(&CProcessor::onerr_goto0);
         m_exec.push_back( {} );
 
@@ -5564,7 +5591,7 @@ private:
                 false)                      &&
             true)                                                   ||
         false){
-            m_s.push_back( _variant_t{ {{{VT_ERROR,0,0,0,{0}}}} } );
+            m_s.push_back( variant_of(VT_ERROR) );
         }
 
         auto i = m_s.rbegin();
@@ -6517,7 +6544,7 @@ public:
         m_pgadims = &m_autodim.back();
 
         m_with.reserve(size);
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
 
         m_onerr.reserve(size);
         m_onerr.push_back(&CProcessor::onerr_goto0);
@@ -6554,7 +6581,7 @@ public:
         m_pgadims = parent.m_pgadims;
 
         m_with.reserve(parent.m_with.capacity());
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
 
         m_onerr.reserve(parent.m_onerr.capacity());
         m_onerr.push_back(&CProcessor::onerr_goto0);
@@ -6597,7 +6624,7 @@ public:
         m_pgadims = source.m_pgadims;
 
         m_with.reserve(source.m_with.capacity());
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
 
         m_onerr.reserve(source.m_onerr.capacity());
         m_onerr.push_back(&CProcessor::onerr_goto0);
@@ -6684,7 +6711,7 @@ public:
         m_scope.push_back( prog.m_dim_defs );
         std::vector<_variant_t>& newscope = m_scope.back();
         m_autodim.push_back( {} );
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
         m_onerr.push_back(&CProcessor::onerr_goto0);
         m_exec.push_back( {} );
 
@@ -7011,7 +7038,7 @@ public:
         m_pgadims = &m_autodim.back();
 
         m_with.clear();
-        m_with.push_back( { _variant_t{{{{VT_EMPTY,0,0,0,{}}}}} } );
+        m_with.push_back( { variant_of(VT_EMPTY) } );
 
         m_onerr.clear();
         m_onerr.push_back(&CProcessor::onerr_goto0);
