@@ -86,10 +86,12 @@ typedef uint16_t    VARTYPE;
 typedef uint16_t    USHORT;
 typedef uint64_t    ULONGLONG;
 typedef uint8_t     BYTE;
+typedef int8_t      CHAR;
+typedef float       FLOAT;
 typedef int64_t     LONGLONG;
 typedef double      DOUBLE;
 typedef double      DATE;
-typedef long        LONG;
+typedef int32_t     LONG;
 typedef int16_t     SHORT;
 typedef int         INT;
 typedef void*       LPVOID;
@@ -229,6 +231,17 @@ struct DECIMAL{
     } DUMMYUNIONNAME2;
 };
 
+// 货币类型：一个 64 位定点数，单位是万分之一；低 32 位在 Lo、高 32 位在 Hi
+struct CY{
+    union{
+        struct{
+            ULONG Lo;
+            LONG Hi;
+        };
+        LONGLONG int64;
+    };
+};
+
 struct IDispatch;
 
 struct VARIANT{
@@ -243,12 +256,12 @@ struct VARIANT{
                 LONG lVal;
                 BYTE bVal;
                 SHORT iVal;
-                // FLOAT fltVal;
+                FLOAT fltVal;
                 DOUBLE dblVal;
                 VARIANT_BOOL boolVal;
                 // VARIANT_BOOL __OBSOLETE__VARIANT_BOOL;
                 // SCODE scode;
-                // CY cyVal;
+                CY cyVal;
                 DATE date;
                 BSTR bstrVal;
                 IUnknown *punkVal;
@@ -271,9 +284,9 @@ struct VARIANT{
                 // SAFEARRAY **pparray;
                 VARIANT *pvarVal;
                 PVOID byref;
-                // CHAR cVal;
+                CHAR cVal;
                 USHORT uiVal;
-                // ULONG ulVal;
+                ULONG ulVal;
                 ULONGLONG ullVal;
                 // INT intVal;
                 // UINT uintVal;
@@ -293,6 +306,7 @@ struct VARIANT{
         DECIMAL decVal;
     };
 };
+typedef VARIANT VARIANTARG;
 typedef VARIANT* LPVARIANT;
 
 struct DISPPARAMS{
