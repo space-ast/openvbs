@@ -855,6 +855,23 @@ HRESULT VariantChangeType(VARIANT *pvargDest, const VARIANT *pvarSrc, USHORT wFl
             pvargDest->vt = VT_BOOL;
             pvargDest->boolVal = pvarSrc->llVal ? VARIANT_TRUE : VARIANT_FALSE;
         }else
+        if(pvarSrc->vt == VT_I4){
+            pvargDest->vt = VT_BOOL;
+            pvargDest->boolVal = pvarSrc->lVal ? VARIANT_TRUE : VARIANT_FALSE;
+        }else
+        if(pvarSrc->vt == VT_I2){
+            pvargDest->vt = VT_BOOL;
+            pvargDest->boolVal = pvarSrc->iVal ? VARIANT_TRUE : VARIANT_FALSE;
+        }else
+        if(pvarSrc->vt == VT_UI1){
+            pvargDest->vt = VT_BOOL;
+            pvargDest->boolVal = pvarSrc->bVal ? VARIANT_TRUE : VARIANT_FALSE;
+        }else
+        if(pvarSrc->vt == VT_R8){
+            // OLE 语义：非零（含 NaN）为真
+            pvargDest->vt = VT_BOOL;
+            pvargDest->boolVal = (pvarSrc->dblVal != 0.0) ? VARIANT_TRUE : VARIANT_FALSE;
+        }else
         if(pvarSrc->vt == VT_BSTR){
             VARIANT_BOOL b;
             if( _wcsicmp(pvarSrc->bstrVal, L"true") == 0 ){
