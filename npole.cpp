@@ -976,6 +976,7 @@ HRESULT VariantChangeType(VARIANT *pvargDest, const VARIANT *pvarSrc, USHORT wFl
                 wchar_t* pend;
                 long long ll = wcstoll(pvarSrc->bstrVal, &pend, 10);
                 if(pend < pvarSrc->bstrVal+SysStringLen(pvarSrc->bstrVal)) hr = E_INVALIDARG;
+                else if(ll < INT32_MIN || INT32_MAX < ll) hr = DISP_E_OVERFLOW;
 
                 if(SUCCEEDED(hr)){
                     pvargDest->vt = VT_I4;
@@ -986,8 +987,54 @@ HRESULT VariantChangeType(VARIANT *pvargDest, const VARIANT *pvarSrc, USHORT wFl
             }
         }else
         if(pvarSrc->vt == VT_I8){
+            if(pvarSrc->llVal < INT32_MIN || INT32_MAX < pvarSrc->llVal) hr = DISP_E_OVERFLOW;
+            else{
+                pvargDest->vt = VT_I4;
+                pvargDest->lVal = pvarSrc->llVal;
+            }
+        }else
+        if(pvarSrc->vt == VT_R4 || pvarSrc->vt == VT_R8){
+            double dbl = pvarSrc->vt == VT_R8 ? pvarSrc->dblVal : (double)pvarSrc->fltVal;
+            double rounded = nearbyint(dbl);      // NaN 走下面的越界分支
+            if(!(INT32_MIN <= rounded && rounded <= INT32_MAX)) hr = DISP_E_OVERFLOW;
+            else{
+                pvargDest->vt = VT_I4;
+                pvargDest->lVal = (LONG)rounded;
+            }
+        }else
+        if(pvarSrc->vt == VT_BOOL){
             pvargDest->vt = VT_I4;
-            pvargDest->lVal = pvarSrc->llVal;
+            pvargDest->lVal = pvarSrc->boolVal;
+        }else
+        if(pvarSrc->vt == VT_I1){
+            pvargDest->vt = VT_I4;
+            pvargDest->lVal = pvarSrc->cVal;
+        }else
+        if(pvarSrc->vt == VT_I2){
+            pvargDest->vt = VT_I4;
+            pvargDest->lVal = pvarSrc->iVal;
+        }else
+        if(pvarSrc->vt == VT_UI1){
+            pvargDest->vt = VT_I4;
+            pvargDest->lVal = pvarSrc->bVal;
+        }else
+        if(pvarSrc->vt == VT_UI2){
+            pvargDest->vt = VT_I4;
+            pvargDest->lVal = pvarSrc->uiVal;
+        }else
+        if(pvarSrc->vt == VT_UI4){
+            if(INT32_MAX < pvarSrc->ulVal) hr = DISP_E_OVERFLOW;
+            else{
+                pvargDest->vt = VT_I4;
+                pvargDest->lVal = pvarSrc->ulVal;
+            }
+        }else
+        if(pvarSrc->vt == VT_UI8){
+            if((ULONGLONG)INT32_MAX < pvarSrc->ullVal) hr = DISP_E_OVERFLOW;
+            else{
+                pvargDest->vt = VT_I4;
+                pvargDest->lVal = (LONG)pvarSrc->ullVal;
+            }
         }else
         {
             wchar_t dbg[32]; swprintf(dbg, 32, L"vt:%d->%d", pvarSrc->vt, vt);
